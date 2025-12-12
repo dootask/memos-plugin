@@ -1,0 +1,16 @@
+services:
+  memos:
+    image: dootask/memos:${PLUGIN_VERSION}
+    environment:
+      - MEMOS_MODE=prod
+      - MEMOS_PORT=5230
+      - MEMOS_BASE_PATH=/apps/memos
+      - MEMOS_VERSION=
+      - MEMOS_RELEASED_AT=
+    volumes:
+      - memos-data:/var/opt/memos
+    restart: unless-stopped
+
+volumes:
+  memos-data:
+

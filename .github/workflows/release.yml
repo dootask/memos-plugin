@@ -1,0 +1,113 @@
+name: Release
+
+# Required secrets:
+# DOOTASK_USERNAME
+# DOOTASK_PASSWORD
+# DOCKER_USERNAME
+# DOCKER_PASSWORD
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKER_PLATFORMS: |
+    linux/amd64
+    linux/arm64
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout memos-plugin repo
+        uses: actions/checkout@v4
+
+      - name: Clone memos source
+        run: |
+          git clone --depth 1 https://github.com/dootask/memos.git memos-src
+
+      - name: Extract version from memos
+        id: version
+        run: |
+          VERSION="$(awk -F'\"' '/var Version =/ {print $2; exit}' memos-src/internal/version/version.go)"
+          if [ -z "$VERSION" ]; then
+            echo "Failed to extract version from memos-src/internal/version/version.go" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Frontend build (with base path for DooTask subpath deployment).
+      - uses: pnpm/action-setup@v4.1.0
+        with:
+          version: 10
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: "memos-src/web/pnpm-lock.yaml"
+      - run: pnpm install
+        working-directory: memos-src/web
+      - name: Run frontend build with base path
+        run: MEMOS_BASE_PATH=/apps/memos pnpm release
+        working-directory: memos-src/web
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: memos-src
+          file: memos-src/scripts/Dockerfile
+          push: true
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+          tags: dootask/memos:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      - name: Create dootask-plugin tar.gz package
+        run: |
+          cd dootask-plugin
+          base_version="1.0.0"
+          version_dir="${{ env.VERSION }}"
+          if [ "$version_dir" != "$base_version" ]; then
+            mv "$base_version" "$version_dir"
+          fi
+          compose_file="$version_dir/docker-compose.yml"
+          if [ -f "$compose_file" ]; then
+            released_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            plugin_hash="$(git rev-parse --short HEAD)"
+            plugin_version="\${PLUGIN_VERSION} (${plugin_hash})"
+            sed -i "s|MEMOS_RELEASED_AT=.*|MEMOS_RELEASED_AT=${released_at}|" "$compose_file"
+            sed -i "s|MEMOS_VERSION=.*|MEMOS_VERSION=${plugin_version}|" "$compose_file"
+          fi
+          tar -czf ../dootask-plugin.tar.gz .
+          cd ..
+          echo "Package created: dootask-plugin.tar.gz"
+          ls -la dootask-plugin.tar.gz
+
+      - name: Publish to DooTask App Store
+        uses: dootask/appstore-action@v2
+        with:
+          username: ${{ secrets.DOOTASK_USERNAME }}
+          password: ${{ secrets.DOOTASK_PASSWORD }}
+          appid: 'memos'
+          package_file: './dootask-plugin.tar.gz'
+          draft: false

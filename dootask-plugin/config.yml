@@ -1,0 +1,15 @@
+name:
+  en: Memos
+  zh: Memos
+description:
+  en: Lightweight notes and knowledge base plugin for DooTask.
+  zh: 面向 DooTask 的轻量化备忘录与知识库插件。
+tags:
+  - memos
+  - notes
+  - knowledge-base
+  - 备忘录
+author: DooTask
+github: https://github.com/dootask/memos
+website: https://github.com/dootask/memos
+

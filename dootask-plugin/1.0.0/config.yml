@@ -1,0 +1,8 @@
+menu_items:
+  - location: application
+    label:
+      en: Memos
+      zh: 备忘录
+    url: "apps/memos/?theme={system_theme}&lang={system_lang}"
+    url_type: iframe
+
